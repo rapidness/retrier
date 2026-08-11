@@ -1,0 +1,100 @@
+logging:
+    enabled: true
+    log_requests: true
+    log_responses: true
+    log_retries: true
+    max_body_size: 10240
+    output: file
+    file_path: ./logs/retry-middleware.log
+    max_file_size: 100
+    max_files: 10
+rules:
+    - name: retry-on-code-700
+      description: 配额耗尽或临时业务错误，重试3次
+      match:
+        http_status: 200
+        headers: []
+        json_path_match:
+            path: $.code
+            operator: ==
+            value: 700
+        text_match: null
+        logic: null
+      action:
+        max_attempts: 3
+        skip_retry: false
+        backoff:
+            strategy: exponential
+            initial_delay: 500
+            multiplier: 2
+            max_delay: 5000
+            jitter: true
+        idempotent_only: false
+    - name: retry-on-429-and-5xx
+      description: 限流或服务端临时故障
+      match:
+        http_status:
+            - 429
+            - 502
+            - 503
+            - 504
+        headers: []
+        json_path_match: null
+        text_match: null
+        logic: null
+      action:
+        max_attempts: 5
+        skip_retry: false
+        backoff:
+            strategy: exponential
+            initial_delay: 500
+            multiplier: 1.5
+            max_delay: 5000
+            jitter: true
+        idempotent_only: false
+    - name: never-retry-on-400
+      description: ""
+      match:
+        http_status: 400
+        headers: []
+        json_path_match: null
+        text_match: null
+        logic: null
+      action:
+        max_attempts: 1
+        skip_retry: true
+        backoff:
+            strategy: exponential
+            initial_delay: 1000
+            multiplier: 2
+            max_delay: 30000
+            jitter: false
+        idempotent_only: false
+    - name: 502 CC Switch local proxy failed
+      description: 502 CC Switch local proxy failed
+      match:
+        http_status: null
+        headers: []
+        json_path_match: null
+        text_match:
+            contains: 502 CC Switch local proxy failed
+            regex: ""
+        logic: null
+      action:
+        max_attempts: 10
+        skip_retry: false
+        backoff:
+            strategy: exponential
+            initial_delay: 1000
+            multiplier: 2
+            max_delay: 30000
+            jitter: true
+        idempotent_only: false
+proxy:
+    listen: "127.0.0.1:15722"
+    upstream: http://127.0.0.1:15721
+    timeout_seconds: 120
+    global_timeout: 60000
+rate_limit:
+    retry_burst: 100
+    retry_burst_window: 60
