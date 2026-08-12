@@ -34,6 +34,21 @@ const Logging: React.FC = () => {
     }
   };
 
+  /** Switch 即时生效：切换后立即持久化到后端 */
+  const handleSwitchToggle = async (field: keyof LoggingConfig, checked: boolean) => {
+    if (!config) return;
+    const newLogging = { ...config.logging, [field]: checked };
+    try {
+      await api.updateLogging(newLogging);
+      setConfig({ ...config, logging: newLogging });
+      form.setFieldValue(field, checked);
+    } catch (e: any) {
+      // 回滚表单值
+      form.setFieldValue(field, !checked);
+      message.error('切换失败: ' + e.message);
+    }
+  };
+
   return (
     <Card title="日志配置" extra={config && <Tag color={config.logging.enabled ? 'green' : 'default'}>{config.logging.enabled ? 'ON' : 'OFF'}</Tag>}>
       <Form form={form} layout="vertical">
@@ -41,7 +56,7 @@ const Logging: React.FC = () => {
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item label="启用日志" name="enabled" valuePropName="checked">
-              <Switch />
+              <Switch onChange={(v) => handleSwitchToggle('enabled', v)} />
             </Form.Item>
           </Col>
         </Row>
@@ -50,17 +65,17 @@ const Logging: React.FC = () => {
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item label="记录请求" name="log_requests" valuePropName="checked">
-              <Switch />
+              <Switch onChange={(v) => handleSwitchToggle('log_requests', v)} />
             </Form.Item>
           </Col>
           <Col span={8}>
             <Form.Item label="记录响应" name="log_responses" valuePropName="checked">
-              <Switch />
+              <Switch onChange={(v) => handleSwitchToggle('log_responses', v)} />
             </Form.Item>
           </Col>
           <Col span={8}>
             <Form.Item label="记录重试" name="log_retries" valuePropName="checked">
-              <Switch />
+              <Switch onChange={(v) => handleSwitchToggle('log_retries', v)} />
             </Form.Item>
           </Col>
         </Row>
