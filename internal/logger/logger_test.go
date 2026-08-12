@@ -58,12 +58,12 @@ func TestSanitizerBodyTruncation(t *testing.T) {
 
 func TestLoggerToggle(t *testing.T) {
 	// Test with logging disabled
-	l := New(false, true, true, true, 10240, "./logs/test.log", 100, 10)
+	l := New(false, true, true, true, 10240, "file", "./logs/test.log", 100, 10)
 
 	// These should be no-ops (no files created)
 	req, _ := http.NewRequest("POST", "http://example.com", nil)
 	l.LogRequest("test-id", req, nil)
-	l.LogResponse("test-id", 1, &http.Response{StatusCode: 200}, 0, 0)
+	l.LogResponse("test-id", 1, &http.Response{StatusCode: 200}, 0, nil, 0)
 	l.LogRetry("test-id", 1, "test-rule", 429, nil, 0)
 
 	// Verify logging is off
@@ -72,7 +72,7 @@ func TestLoggerToggle(t *testing.T) {
 	}
 
 	// Enable logging
-	l.Update(true, true, true, true)
+	l.Update(true, true, true, true, 10240)
 	if !l.Enabled() {
 		t.Error("Logger should be enabled after Update")
 	}
@@ -82,7 +82,7 @@ func TestLoggerToggle(t *testing.T) {
 }
 
 func BenchmarkLoggerToggleOff(b *testing.B) {
-	l := New(false, true, true, true, 10240, "./logs/bench.log", 100, 10)
+	l := New(false, true, true, true, 10240, "file", "./logs/bench.log", 100, 10)
 	defer l.Close()
 
 	req, _ := http.NewRequest("POST", "http://example.com", nil)
@@ -94,7 +94,7 @@ func BenchmarkLoggerToggleOff(b *testing.B) {
 }
 
 func BenchmarkLoggerToggleOn(b *testing.B) {
-	l := New(true, true, true, true, 10240, "./logs/bench-on.log", 100, 10)
+	l := New(true, true, true, true, 10240, "file", "./logs/bench-on.log", 100, 10)
 	defer l.Close()
 
 	req, _ := http.NewRequest("POST", "http://example.com", nil)

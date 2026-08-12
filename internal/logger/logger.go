@@ -23,13 +23,15 @@ type Logger struct {
 	maxBodySize  int
 	sanitizer    *Sanitizer
 
-	mu     sync.Mutex
-	writer *lumberjack.Logger
-	slog   *slog.Logger
+	mu       sync.Mutex
+	writer   *lumberjack.Logger
+	stdout   *os.File // nil when output is "file" only
+	slog     *slog.Logger
 }
 
 // New creates a Logger from config. Initially applies the enabled flags.
-func New(enabled, logReq, logResp, logRetry bool, maxBodySize int, filePath string, maxFileSize, maxFiles int) *Logger {
+// output: "file" → lumberjack only, "stdout" → os.Stdout only, "both" → both.
+func New(enabled, logReq, logResp, logRetry bool, maxBodySize int, output, filePath string, maxFileSize, maxFiles int) *Logger {
 	l := &Logger{
 		maxBodySize: maxBodySize,
 		sanitizer:   NewSanitizer(maxBodySize),
@@ -39,23 +41,41 @@ func New(enabled, logReq, logResp, logRetry bool, maxBodySize int, filePath stri
 	l.logResponses.Store(logResp)
 	l.logRetries.Store(logRetry)
 
-	l.writer = &lumberjack.Logger{
-		Filename:   filePath,
-		MaxSize:    maxFileSize, // MB
-		MaxBackups: maxFiles,
-		Compress:   false,
+	switch output {
+	case "stdout":
+		l.stdout = os.Stdout
+	case "both":
+		l.stdout = os.Stdout
+		l.writer = &lumberjack.Logger{
+			Filename:   filePath,
+			MaxSize:    maxFileSize,
+			MaxBackups: maxFiles,
+			Compress:   false,
+		}
+		l.slog = slog.New(slog.NewJSONHandler(l.writer, nil))
+	default: // "file"
+		l.writer = &lumberjack.Logger{
+			Filename:   filePath,
+			MaxSize:    maxFileSize, // MB
+			MaxBackups: maxFiles,
+			Compress:   false,
+		}
+		l.slog = slog.New(slog.NewJSONHandler(l.writer, nil))
 	}
-	l.slog = slog.New(slog.NewJSONHandler(l.writer, nil))
 
 	return l
 }
 
 // Update reconfigures logging flags (for hot-reload).
-func (l *Logger) Update(enabled, logReq, logResp, logRetry bool) {
+func (l *Logger) Update(enabled, logReq, logResp, logRetry bool, maxBodySize int) {
 	l.enabled.Store(enabled)
 	l.logRequests.Store(logReq)
 	l.logResponses.Store(logResp)
 	l.logRetries.Store(logRetry)
+	if maxBodySize > 0 && maxBodySize != l.maxBodySize {
+		l.maxBodySize = maxBodySize
+		l.sanitizer = NewSanitizer(maxBodySize)
+	}
 }
 
 // LogRequest logs an incoming request (if enabled).
@@ -89,21 +109,25 @@ func (l *Logger) LogRequest(reqID string, req *http.Request, body []byte) {
 }
 
 // LogResponse logs a response (if enabled).
-func (l *Logger) LogResponse(reqID string, attempt int, resp *http.Response, bodySize int, elapsed time.Duration) {
+func (l *Logger) LogResponse(reqID string, attempt int, resp *http.Response, bodySize int, responseBody []byte, elapsed time.Duration) {
 	if !l.enabled.Load() || !l.logResponses.Load() {
 		return
 	}
 
 	success := resp.StatusCode >= 200 && resp.StatusCode < 300
 	entry := map[string]interface{}{
-		"timestamp":        time.Now().UTC().Format(time.RFC3339Nano),
-		"request_id":       reqID,
-		"event":            "response",
-		"attempt":          attempt,
-		"success":          success,
-		"status_code":      resp.StatusCode,
+		"timestamp":          time.Now().UTC().Format(time.RFC3339Nano),
+		"request_id":         reqID,
+		"event":              "response",
+		"attempt":            attempt,
+		"success":            success,
+		"status_code":        resp.StatusCode,
 		"response_body_size": bodySize,
-		"total_elapsed_ms": elapsed.Milliseconds(),
+		"total_elapsed_ms":   elapsed.Milliseconds(),
+	}
+
+	if responseBody != nil {
+		entry["response_body"] = l.sanitizer.SanitizeBody(responseBody)
 	}
 
 	l.writeJSON(entry)
@@ -163,15 +187,21 @@ func (l *Logger) Close() error {
 	return nil
 }
 
-// writeJSON writes a JSON entry to the log file.
+// writeJSON writes a JSON entry to the log output(s).
 func (l *Logger) writeJSON(entry map[string]interface{}) {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return
 	}
+	line := append(data, '\n')
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.writer.Write(append(data, '\n'))
+	if l.writer != nil {
+		l.writer.Write(line)
+	}
+	if l.stdout != nil {
+		l.stdout.Write(line)
+	}
 }
 
 // Ensure lumberjack.Logger implements io.Writer

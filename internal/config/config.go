@@ -138,7 +138,7 @@ func (c *Config) Validate() error {
 
 	// Logging defaults
 	if c.Logging.MaxBodySize <= 0 {
-		c.Logging.MaxBodySize = 10240
+		c.Logging.MaxBodySize = 1048576
 	}
 	if c.Logging.Output == "" {
 		c.Logging.Output = "file"

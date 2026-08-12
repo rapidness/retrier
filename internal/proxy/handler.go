@@ -45,10 +45,9 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 		return nil, err
 	}
 
-	// Create retry budget and executor
+	// Create retry budget
 	budget := retry.NewBudget(cfg.RateLimit.RetryBurst, cfg.RateLimit.RetryBurstWindow)
 	timeout := time.Duration(cfg.Proxy.TimeoutSec) * time.Second
-	executor := retry.NewExecutor(budget, timeout)
 
 	// Create logger
 	lgr := logger.New(
@@ -57,6 +56,7 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 		cfg.Logging.LogResponses,
 		cfg.Logging.LogRetries,
 		cfg.Logging.MaxBodySize,
+		cfg.Logging.Output,
 		cfg.Logging.FilePath,
 		cfg.Logging.MaxFileSize,
 		cfg.Logging.MaxFiles,
@@ -67,7 +67,7 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 
 	h := &Handler{
 		engine:   engine,
-		executor: executor,
+		executor: retry.NewExecutor(budget, timeout, lgr),
 		logger:   lgr,
 		metrics:  m,
 		cfg:      cfg,
@@ -138,14 +138,14 @@ func (h *Handler) modifyResponse(resp *http.Response) error {
 	// No rule matched → return response as-is
 	if matchedRule == nil {
 		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		h.logger.LogResponse(reqID, 1, resp, len(bodyBytes), time.Since(start))
+		h.logger.LogResponse(reqID, 1, resp, len(bodyBytes), bodyBytes, time.Since(start))
 		return nil
 	}
 
 	// Rule matched + skip_retry → return error directly
 	if matchedRule.Action.SkipRetry {
 		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		h.logger.LogResponse(reqID, 1, resp, len(bodyBytes), time.Since(start))
+		h.logger.LogResponse(reqID, 1, resp, len(bodyBytes), bodyBytes, time.Since(start))
 		h.metrics.RetryByRuleInc(matchedRule.Name)
 		return nil
 	}
@@ -169,6 +169,7 @@ func (h *Handler) modifyResponse(resp *http.Response) error {
 		matchedRule,
 		h.engine,
 		globalTimeout,
+		reqID,
 	)
 
 	if err != nil || result.Exhausted {
@@ -195,7 +196,13 @@ func (h *Handler) modifyResponse(resp *http.Response) error {
 	resp.Header = result.Response.Header
 	resp.Body = result.Response.Body
 
-	h.logger.LogResponse(reqID, result.Attempts, resp, 0, time.Since(start))
+	// Read response body for logging, then restore
+	var retryBodyBytes []byte
+	if resp.Body != nil {
+		retryBodyBytes, _ = io.ReadAll(resp.Body)
+		resp.Body = io.NopCloser(bytes.NewReader(retryBodyBytes))
+	}
+	h.logger.LogResponse(reqID, result.Attempts, resp, len(retryBodyBytes), retryBodyBytes, time.Since(start))
 
 	return nil
 }
@@ -222,6 +229,7 @@ func (h *Handler) UpdateConfig(cfg *config.Config) {
 		cfg.Logging.LogRequests,
 		cfg.Logging.LogResponses,
 		cfg.Logging.LogRetries,
+		cfg.Logging.MaxBodySize,
 	)
 }
 

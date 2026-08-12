@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/your-org/proxy-api/internal/logger"
 	"github.com/your-org/proxy-api/internal/rule"
 )
 
@@ -16,15 +17,17 @@ import (
 type Executor struct {
 	budget *Budget
 	client *http.Client
+	logger *logger.Logger
 }
 
 // NewExecutor creates a retry executor.
-func NewExecutor(budget *Budget, timeout time.Duration) *Executor {
+func NewExecutor(budget *Budget, timeout time.Duration, lgr *logger.Logger) *Executor {
 	return &Executor{
 		budget: budget,
 		client: &http.Client{
 			Timeout: timeout,
 		},
+		logger: lgr,
 	}
 }
 
@@ -47,6 +50,7 @@ func (e *Executor) Execute(
 	matchedRule *rule.CompiledRule,
 	engine *rule.Engine,
 	globalTimeout time.Duration,
+	reqID string,
 ) (*Result, error) {
 	result := &Result{
 		MatchedRule: matchedRule.Name,
@@ -106,9 +110,15 @@ func (e *Executor) Execute(
 			return result, fmt.Errorf("rebuild request: %w", err)
 		}
 
+		// Log retry request (if enabled)
+		e.logger.LogRequest(reqID, retryReq, body)
+
 		// Send retry request
+		attemptStart := time.Now()
 		resp, err := e.client.Do(retryReq)
+		attemptElapsed := time.Since(attemptStart)
 		if err != nil {
+			e.logger.LogRetry(reqID, attempt+1, matchedRule.Name, 0, nil, backoff.Delay(attempt+1))
 			log.Printf("[retry] rule=%s attempt=%d error=%v", matchedRule.Name, attempt+1, err)
 			continue
 		}
@@ -135,12 +145,16 @@ func (e *Executor) Execute(
 		matched := engine.Match(respCtx)
 		if matched == nil || matched.Action.SkipRetry {
 			// No retry rule matched → success! Return this response
+			// Log the successful retry response
+			e.logger.LogResponse(reqID, attempt+1, resp, len(respBody), respBody, attemptElapsed)
 			// Restore body for the caller to read
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 			return result, nil
 		}
 
-		// Still matching a retry rule → continue retrying
+		// Still matching a retry rule → log response + retry event and continue retrying
+		e.logger.LogResponse(reqID, attempt+1, resp, len(respBody), respBody, attemptElapsed)
+		e.logger.LogRetry(reqID, attempt+1, matchedRule.Name, resp.StatusCode, respBody, backoff.Delay(attempt+1))
 		log.Printf("[retry] rule=%s attempt=%d still_matching=%s",
 			matchedRule.Name, attempt+1, matched.Name)
 	}

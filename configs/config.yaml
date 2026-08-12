@@ -1,9 +1,9 @@
 logging:
     enabled: true
-    log_requests: true
-    log_responses: true
+    log_requests: false
+    log_responses: false
     log_retries: true
-    max_body_size: 10240
+    max_body_size: 1048576
     output: file
     file_path: ./logs/retry-middleware.log
     max_file_size: 100
@@ -91,7 +91,7 @@ rules:
             jitter: true
         idempotent_only: false
 proxy:
-    listen: "127.0.0.1:15722"
+    listen: 127.0.0.1:15722
     upstream: http://127.0.0.1:15721
     timeout_seconds: 120
     global_timeout: 60000
