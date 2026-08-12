@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Card, Col, Row, Statistic, Switch, Tag, Typography, Spin, message } from 'antd';
+import React, { useEffect, useRef, useState } from 'react';
+import { Card, Col, Row, Statistic, Switch, Tag, Typography, Spin, Button, Tooltip, message } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -9,12 +9,17 @@ import {
 import { api } from '../api/client';
 import type { Status, Config } from '../types/config';
 
+const REFRESH_INTERVAL = 5000; // 5 秒自动刷新
+
 const Dashboard: React.FC = () => {
   const [status, setStatus] = useState<Status | null>(null);
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchData = async () => {
+  const fetchData = async (showRefreshing = false) => {
+    if (showRefreshing) setRefreshing(true);
     try {
       const [s, c] = await Promise.all([api.getStatus(), api.getConfig()]);
       setStatus(s);
@@ -23,10 +28,17 @@ const Dashboard: React.FC = () => {
       message.error('获取状态失败: ' + e.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+    timerRef.current = setInterval(() => fetchData(), REFRESH_INTERVAL);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
 
   const toggleLogging = async (checked: boolean) => {
     if (!config) return;
@@ -45,6 +57,11 @@ const Dashboard: React.FC = () => {
 
   return (
     <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <Tooltip title="刷新数据">
+          <Button icon={<ReloadOutlined />} size="small" loading={refreshing} onClick={() => fetchData(true)} />
+        </Tooltip>
+      </div>
       <Row gutter={[16, 16]}>
         <Col span={6}>
           <Card>

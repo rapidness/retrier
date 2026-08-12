@@ -15,7 +15,13 @@ async function request<T>(method: string, path: string, body?: any): Promise<T> 
     const err = await res.text();
     throw new Error(`API ${res.status}: ${err}`);
   }
-  return res.json();
+  // 204 No Content 或无 body 时跳过 JSON 解析
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as unknown as T;
+  }
+  const text = await res.text();
+  if (!text) return undefined as unknown as T;
+  return JSON.parse(text) as T;
 }
 
 export const api = {

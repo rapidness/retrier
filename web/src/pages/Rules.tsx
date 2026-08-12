@@ -16,7 +16,7 @@ const operatorOptions = [
   { value: '>', label: '> (大于)' },
   { value: '<', label: '< (小于)' },
   { value: '>=', label: '>= (大于等于)' },
-  { value: '<=', label: '<= (小于?于等于)' },
+  { value: '<=', label: '<= (小于等于)' },
   { value: 'contains', label: 'contains (包含)' },
 ];
 
@@ -86,17 +86,17 @@ const Rules: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!config) return;
     try {
       const values = await form.validateFields();
       const rule = buildRule(values);
 
-      const newRules = editingRule
-        ? config.rules.map(r => r.name === editingRule.name ? rule : r)
-        : [...config.rules, rule];
-
-      await api.updateConfig({ ...config, rules: newRules });
-      message.success(editingRule ? '规则已更新' : '规则已添加');
+      if (editingRule) {
+        await api.updateRule(editingRule.name, rule);
+        message.success('规则已更新');
+      } else {
+        await api.addRule(rule);
+        message.success('规则已添加');
+      }
       setDrawerOpen(false);
       fetchConfig();
     } catch (e: any) {
