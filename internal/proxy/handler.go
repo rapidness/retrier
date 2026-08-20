@@ -138,6 +138,7 @@ func (h *Handler) modifyResponse(resp *http.Response) error {
 	// No rule matched → return response as-is
 	if matchedRule == nil {
 		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		resetRespHeaders(resp)
 		h.logger.LogResponse(reqID, 1, resp, len(bodyBytes), bodyBytes, time.Since(start))
 		return nil
 	}
@@ -145,6 +146,7 @@ func (h *Handler) modifyResponse(resp *http.Response) error {
 	// Rule matched + skip_retry → return error directly
 	if matchedRule.Action.SkipRetry {
 		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		resetRespHeaders(resp)
 		h.logger.LogResponse(reqID, 1, resp, len(bodyBytes), bodyBytes, time.Since(start))
 		h.metrics.RetryByRuleInc(matchedRule.Name)
 		return nil
@@ -182,6 +184,7 @@ func (h *Handler) modifyResponse(resp *http.Response) error {
 		resp.StatusCode = 502
 		resp.Status = "502 Bad Gateway"
 		resp.Body = io.NopCloser(bytes.NewReader([]byte(`{"error":"retry exhausted","rule":"` + matchedRule.Name + `"}`)))
+		resetRespHeaders(resp)
 		return nil
 	}
 
@@ -202,9 +205,20 @@ func (h *Handler) modifyResponse(resp *http.Response) error {
 		retryBodyBytes, _ = io.ReadAll(resp.Body)
 		resp.Body = io.NopCloser(bytes.NewReader(retryBodyBytes))
 	}
+	resetRespHeaders(resp)
 	h.logger.LogResponse(reqID, result.Attempts, resp, len(retryBodyBytes), retryBodyBytes, time.Since(start))
 
 	return nil
+}
+
+// resetRespHeaders clears transfer-encoding related headers and resets
+// ContentLength so that Go's HTTP server correctly calculates and writes
+// the body length, preventing Content-Length/body-size mismatches that
+// cause IncompleteMessage errors.
+func resetRespHeaders(resp *http.Response) {
+	resp.Header.Del("Content-Length")
+	resp.Header.Del("Transfer-Encoding")
+	resp.ContentLength = -1
 }
 
 // errorHandler handles proxy forwarding errors.

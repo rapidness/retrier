@@ -68,7 +68,7 @@
 | `logging.log_requests` | 是否记录请求体（含 Headers、Body） | `false` |
 | `logging.log_responses` | 是否记录响应体（含 Headers、Body） | `false` |
 | `logging.log_retries` | 是否记录重试事件（含每次重试的触发原因、延迟、结果） | `true` |
-| `logging.max_body_size` | 单条日志中 Body 最大记录长度（字节），超出截断 | `10240` |
+| `logging.max_body_size` | 单条日志中 Body 最大记录长度（字节），超出截断 | `1048576` |
 | `logging.output` | 日志输出位置 | `file` / `stdout` / `both` |
 | `logging.file_path` | 日志文件路径 | `./logs/middleware.log` |
 | `logging.max_file_size` | 单个日志文件最大大小（MB），超出自动轮转 | `100` |
@@ -89,11 +89,11 @@ logging:
   enabled: false
   
   # 排障时可选择性开启
-  log_requests: true
-  log_responses: true
+  log_requests: false
+  log_responses: false
   log_retries: true
   
-  max_body_size: 10240
+  max_body_size: 1048576
   
   output: file
   file_path: "./logs/retry-middleware.log"
@@ -153,10 +153,10 @@ logging:
 # ---------- 日志配置 ----------
 logging:
   enabled: false                    # 总开关，日常关闭
-  log_requests: true
-  log_responses: true
+  log_requests: false
+  log_responses: false
   log_retries: true
-  max_body_size: 10240
+  max_body_size: 1048576
   output: file
   file_path: "./logs/retry-middleware.log"
   max_file_size: 100
@@ -169,9 +169,10 @@ rules:
     description: "配额耗尽或临时业务错误，重试3次"
     match:
       http_status: 200
-      json_path: "$.code"
-      operator: "=="
-      value: 700
+      json_path_match:
+        path: "$.code"
+        operator: "=="
+        value: 700
     action:
       max_attempts: 3
       backoff:
@@ -210,6 +211,7 @@ proxy:
   listen: "127.0.0.1:15722"
   upstream: "http://127.0.0.1:15721"   # 指向 CC Switch，也可直接指向 LLM API
   timeout_seconds: 120
+  global_timeout: 60000                # 重试总耗时上限（毫秒）
 
 # ---------- 全局重试预算（可选） ----------
 rate_limit:

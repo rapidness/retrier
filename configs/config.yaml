@@ -43,12 +43,12 @@ rules:
         text_match: null
         logic: null
       action:
-        max_attempts: 5
+        max_attempts: 20
         skip_retry: false
         backoff:
             strategy: exponential
             initial_delay: 500
-            multiplier: 1.5
+            multiplier: 2
             max_delay: 5000
             jitter: true
         idempotent_only: false
@@ -82,6 +82,26 @@ rules:
         logic: null
       action:
         max_attempts: 10
+        skip_retry: false
+        backoff:
+            strategy: exponential
+            initial_delay: 1000
+            multiplier: 2
+            max_delay: 30000
+            jitter: true
+        idempotent_only: false
+    - name: upstream_status:HTTP 400
+      description: ""
+      match:
+        http_status: null
+        headers: []
+        json_path_match: null
+        text_match:
+            contains: ""
+            regex: 'upstream_status: HTTP 400'
+        logic: null
+      action:
+        max_attempts: 20
         skip_retry: false
         backoff:
             strategy: exponential

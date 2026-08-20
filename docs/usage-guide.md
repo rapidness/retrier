@@ -4,20 +4,20 @@
 
 ### 1.1 前置条件
 
-- Go 1.22+
+- Go 1.26+
 - Node.js 18+（仅前端开发时需要）
 
 ### 1.2 构建与启动
 
 ```bash
 # 构建 Go 二进制（前端已内嵌）
-go build -o ./bin/proxy.exe ./cmd/proxy
+go build -ldflags "-s -w" -o ./bin/retry-middleware ./cmd/proxy
 
 # 启动服务
-./bin/proxy.exe -config ./configs/config.yaml
+./bin/retry-middleware -config ./configs/config.yaml
 
 # 指定端口
-./bin/proxy.exe \
+./bin/retry-middleware \
   -config ./configs/config.yaml \
   -admin-addr :15723 \
   -metrics-addr :9090
@@ -64,10 +64,10 @@ proxy:
 ```yaml
 logging:
   enabled: false             # 总开关，日常关闭零开销
-  log_requests: true         # 记录请求体
-  log_responses: true        # 记录响应体
+  log_requests: false         # 记录请求体
+  log_responses: false        # 记录响应体
   log_retries: true          # 记录重试事件
-  max_body_size: 10240       # Body 最大记录长度（字节）
+  max_body_size: 1048576       # Body 最大记录长度（字节）
   output: file               # 输出位置：file / stdout / both
   file_path: "./logs/retry-middleware.log"
   max_file_size: 100         # 单文件上限（MB）
@@ -130,7 +130,7 @@ rules:
 | `exponential` | `delay = initial_delay × multiplier^(attempt-1)` | 通用推荐 |
 | `linear` | `delay = initial_delay × attempt` | 温和增长 |
 
-**jitter**：添加随机抖动（±25%），防止多个客户端同时重试造成惊群效应。
+**jitter**：添加随机抖动（±50%），防止多个客户端同时重试造成惊群效应。
 
 #### 跳过重试
 
@@ -257,7 +257,9 @@ curl http://localhost:15723/api/status
 
 ```
 proxy-api/
-├── cmd/proxy/main.go              # 入口
+├── cmd/
+│   ├── proxy/main.go              # 入口
+│   └── mock-upstream/main.go      # 模拟上游 LLM API
 ├── internal/
 │   ├── config/                     # 配置加载 + 热加载
 │   ├── rule/                       # 规则引擎（5种匹配器 + 逻辑组合）
@@ -268,7 +270,9 @@ proxy-api/
 │   ├── metrics/                    # Prometheus 自定义 registry
 │   └── admin/                      # 管理界面 REST API + go:embed
 ├── web/                            # React 18 + Vite + Ant Design 前端
+├── docs/                           # 文档（需求文档、使用手册）
 ├── configs/config.yaml             # 配置文件
+├── Dockerfile                      # 多阶段构建
 └── Makefile
 ```
 
@@ -319,7 +323,7 @@ cd web && npm run build
 cp -r dist ../internal/admin/dist
 
 # 3. 重新编译 Go（go:embed 自动嵌入）
-cd .. && go build -o ./bin/proxy.exe ./cmd/proxy
+cd .. && go build -ldflags "-s -w" -o ./bin/retry-middleware ./cmd/proxy
 ```
 
 ### 5.5 热加载调试
@@ -374,7 +378,7 @@ docker run -d \
 
 ### 6.4 Dockerfile 说明
 
-- 两阶段构建：`golang:1.23-alpine` 编译 → `alpine:3.19` 运行
+- 两阶段构建：`golang:1.26-alpine` 编译 → `alpine:3.19` 运行
 - 最终镜像仅包含二进制 + 配置，体积 ~20MB
 - 暴露端口：15722（代理）、15723（管理）、9090（指标）
 
@@ -444,7 +448,7 @@ proxy:
 # 方式2：API 调用
 curl -X PUT http://localhost:15723/api/logging \
   -H "Content-Type: application/json" \
-  -d '{"enabled":true,"log_requests":true,"log_responses":true,"log_retries":true,"max_body_size":10240,"output":"file","file_path":"./logs/retry-middleware.log","max_file_size":100,"max_files":10}'
+  -d '{"enabled":true,"log_requests":true,"log_responses":true,"log_retries":true,"max_body_size":1048576,"output":"file","file_path":"./logs/retry-middleware.log","max_file_size":100,"max_files":10}'
 
 # 排障完毕后关闭
 # 同上，enabled: false
