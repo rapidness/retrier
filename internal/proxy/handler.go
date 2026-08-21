@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -83,6 +84,17 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 
 // ServeHTTP implements http.Handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Panic recovery: catch panics to prevent incomplete responses
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("[proxy] panic recovered: %v", rec)
+			w.Header().Del("Content-Length")
+			w.Header().Del("Transfer-Encoding")
+			w.Header().Del("Content-Encoding")
+			http.Error(w, fmt.Sprintf(`{"error":"internal server error","detail":"%v"}`, rec), http.StatusInternalServerError)
+		}
+	}()
+
 	start := time.Now()
 	reqID := middleware.GetRequestID(r)
 
@@ -218,6 +230,7 @@ func (h *Handler) modifyResponse(resp *http.Response) error {
 func resetRespHeaders(resp *http.Response) {
 	resp.Header.Del("Content-Length")
 	resp.Header.Del("Transfer-Encoding")
+	resp.Header.Del("Content-Encoding")
 	resp.ContentLength = -1
 }
 
