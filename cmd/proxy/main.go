@@ -55,11 +55,16 @@ func main() {
 	chain := middleware.RequestID(handler)
 
 	// Setup main proxy server
+	// WriteTimeout is set to 0 (disabled) because it covers the entire
+	// request lifecycle including upstream calls and retries, which can
+	// easily exceed 120s for LLM API calls. The proxy has its own timeout
+	// mechanisms (http.Client.Timeout for upstream calls, global_timeout
+	// for retry loops). ReadHeaderTimeout protects against slowloris.
 	srv := &http.Server{
-		Addr:         cfg.Proxy.Listen,
-		Handler:      chain,
-		ReadTimeout:  time.Duration(cfg.Proxy.TimeoutSec) * time.Second,
-		WriteTimeout: time.Duration(cfg.Proxy.TimeoutSec) * time.Second,
+		Addr:              cfg.Proxy.Listen,
+		Handler:           chain,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       time.Duration(cfg.Proxy.TimeoutSec) * time.Second,
 	}
 
 	// Start proxy server
